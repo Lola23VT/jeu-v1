@@ -1,6 +1,8 @@
 import pygame
 import random
 import math
+import json
+import os
 
 # Initialisation
 pygame.init()
@@ -17,6 +19,25 @@ GOLD = (255, 215, 0)
 font_ui = pygame.font.Font(None, 32)
 font_big = pygame.font.Font(None, 74)
 font_small = pygame.font.Font(None, 24)
+
+# --- SYSTEME DE LEADERBOARD ---
+
+def save_score(new_score):
+    leaderboard = load_leaderboard()
+    leaderboard.append(new_score)
+    leaderboard.sort(reverse=True)
+    leaderboard = leaderboard[:5]
+    with open("leaderboard.json", "w") as f:
+        json.dump(leaderboard, f)
+
+def load_leaderboard():
+    if not os.path.exists("leaderboard.json"):
+        return []
+    try:
+        with open("leaderboard.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
 
 # --- CLASSES ---
 
@@ -42,7 +63,7 @@ class Player:
         self.turret_level = 0
         self.last_turret_shot = 0
         self.diag_auto_level = 0
-        self.last_diag_shot = 0
+        self.last_diag_shot = 0 # Nouveau tracker pour le tir diagonal
         self.has_canon = False
         self.last_canon_shot = 0
 
@@ -87,7 +108,6 @@ class Enemy:
         self.is_bonus = is_bonus
         self.rect = pygame.Rect(random.randint(0, WIDTH-40), -50, 40, 40)
         self.hp = 1 if is_bonus else 1 + (wave // 4)
-        # Vitesse minimum assurée de 2.0 pour éviter les blocages
         self.speed = 1.5 if is_bonus else max(2.0, random.uniform(2, 3) + (wave * 0.05))
         self.color = GREEN if is_bonus else (RED if self.hp <= 1 else (150, 0, 0))
     def move(self): self.rect.y += self.speed
@@ -141,11 +161,14 @@ class Boss:
         if self.phase == 4: color = (255, 255, 0) if self.timer % 10 < 5 else RED
         pygame.draw.rect(surface, color, self.rect, 0, 12)
         pygame.draw.rect(surface, GRAY, (WIDTH//2 - 150, 20, 300, 15))
-        pygame.draw.rect(surface, GREEN if self.phase == 1 else (YELLOW if self.phase == 2 else RED), (WIDTH//2 - 150, 20, (self.hp/self.max_hp)*300, 15))
+        pygame.draw.rect(surface, GREEN if self.phase == 1 else (YELLOW if self.phase == 2 else RED), (WIDTH//2 - 150, 20, max(0, (self.hp/self.max_hp)*300), 15))
+        
         if self.phase == 4:
             cycle = self.timer % 180
-            if 100 < cycle < 130: pygame.draw.rect(surface, RED, (self.rect.left, self.rect.bottom, self.rect.width, HEIGHT), 1)
-            elif cycle >= 130: pygame.draw.rect(surface, YELLOW, (self.rect.left, self.rect.bottom, self.rect.width, HEIGHT))
+            if 100 < cycle < 130:
+                pygame.draw.rect(surface, RED, (self.rect.left, self.rect.bottom, self.rect.width, HEIGHT), 2)
+            elif cycle >= 130:
+                pygame.draw.rect(surface, YELLOW, (self.rect.left, self.rect.bottom, self.rect.width, HEIGHT))
 
 # --- SYSTEMES ---
 
@@ -191,9 +214,11 @@ def start_menu():
     classes = ["Normal", "Rapide", "Tank", "Grenadier"]
     while True:
         window.fill((20, 20, 20))
+        title = font_big.render("SHAPE SHOOTER", True, WHITE)
+        window.blit(title, (WIDTH//2 - title.get_width()//2, 80))
         btns = []
         for i, c in enumerate(classes):
-            r = pygame.Rect(WIDTH//2 - 100, 200 + i*70, 200, 50); pygame.draw.rect(window, WHITE, r, 2)
+            r = pygame.Rect(WIDTH//2 - 100, 220 + i*70, 200, 50); pygame.draw.rect(window, WHITE, r, 2)
             txt = font_ui.render(c, True, WHITE); window.blit(txt, (r.centerx - txt.get_width()//2, r.centery - txt.get_height()//2))
             btns.append((r, c))
         pygame.display.flip()
@@ -206,7 +231,7 @@ def start_menu():
 def upgrade_menu(player):
     opts = ["Tourelle", "Cadence", "Tir Diagonal"]
     if not player.has_canon: opts.append("Canon")
-    sel = random.sample(opts, 3); pygame.time.delay(150); pygame.event.clear()
+    sel = random.sample(opts, min(len(opts), 3)); pygame.time.delay(150); pygame.event.clear()
     while True:
         window.fill((10, 10, 30))
         btns = []
@@ -220,99 +245,143 @@ def upgrade_menu(player):
                 for r, o in btns:
                     if r.collidepoint(e.pos):
                         if o == "Tourelle": player.turret_level += 1
-                        if o == "Cadence": player.shoot_delay = max(50, player.shoot_delay - 50); player.base_shoot_delay = player.shoot_delay
+                        if o == "Cadence": 
+                            player.base_shoot_delay = max(50, player.base_shoot_delay - 50)
+                            player.shoot_delay = player.base_shoot_delay
                         if o == "Tir Diagonal": player.diag_auto_level += 1
                         if o == "Canon": player.has_canon = True
                         return
             if e.type == pygame.QUIT: pygame.quit(); exit()
 
-# --- JEU ---
+def show_leaderboard_screen(current_score):
+    save_score(current_score)
+    scores = load_leaderboard()
+    while True:
+        window.fill((15, 15, 15))
+        title = font_big.render("GAME OVER", True, RED)
+        window.blit(title, (WIDTH//2 - title.get_width()//2, 80))
+        score_now = font_ui.render(f"Ton Score: {current_score}", True, GOLD)
+        window.blit(score_now, (WIDTH//2 - score_now.get_width()//2, 160))
+        window.blit(font_ui.render("--- TOP 5 ---", True, WHITE), (WIDTH//2 - 70, 230))
+        for i, s in enumerate(scores):
+            txt = font_ui.render(f"{i+1}. {s} pts", True, CYAN)
+            window.blit(txt, (WIDTH//2 - 60, 270 + i*40))
+        prompt = font_small.render("Appuyez sur ENTRÉE pour rejouer ou ESC pour quitter", True, GRAY)
+        window.blit(prompt, (WIDTH//2 - prompt.get_width()//2, HEIGHT - 80))
+        pygame.display.flip()
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT: pygame.quit(); exit()
+            if e.type == pygame.KEYDOWN:
+                if e.key == pygame.K_RETURN: return
+                if e.key == pygame.K_ESCAPE: pygame.quit(); exit()
 
-player = Player(start_menu())
-projectiles, enemies, b_projs, damage_texts = [], [], [], []
-wave, score, currency_points, running, enemies_left = 1, 0, 0, True, 5
-boss, clock = None, pygame.time.Clock()
+# --- BOUCLE PRINCIPALE ---
 
-while running:
-    clock.tick(60); now = pygame.time.get_ticks(); window.fill(WHITE)
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT: running = False
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
-            if player.has_overload_unlocked and not player.overload_active:
-                player.overload_active = True; player.overload_timer = 300
+while True:
+    player_type = start_menu()
+    player = Player(player_type)
+    projectiles, enemies, b_projs, damage_texts = [], [], [], []
+    wave, score, currency_points, enemies_left = 1, 0, 0, 5
+    boss, clock = None, pygame.time.Clock()
+    game_running = True
 
-    if (pygame.mouse.get_pressed()[0] or pygame.key.get_pressed()[pygame.K_SPACE]) and now - player.last_shot_time > player.shoot_delay:
-        is_g = player.player_class == "Grenadier"
-        projectiles.append(Projectile(player.rect.centerx, player.rect.top, 0, -12, YELLOW if is_g else BLACK, is_grenade=is_g, piercing=player.piercing))
-        player.last_shot_time = now
+    while game_running:
+        clock.tick(60); now = pygame.time.get_ticks(); window.fill(WHITE)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT: pygame.quit(); exit()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
+                if player.has_overload_unlocked and not player.overload_active:
+                    player.overload_active = True; player.overload_timer = 300
 
-    player.update_position(pygame.mouse.get_pos()[0])
+        # --- LOGIQUE DE TIR PRINCIPAL ---
+        is_shooting = pygame.mouse.get_pressed()[0] or pygame.key.get_pressed()[pygame.K_SPACE]
+        
+        if is_shooting and now - player.last_shot_time > player.shoot_delay:
+            is_g = player.player_class == "Grenadier"
+            projectiles.append(Projectile(player.rect.centerx, player.rect.top, 0, -12, YELLOW if is_g else BLACK, is_grenade=is_g, piercing=player.piercing))
+            player.last_shot_time = now
 
-    # Vagues et Spawn (Correction du blocage)
-    if wave % 10 == 0:
-        if not boss: boss = Boss(wave); enemies.clear(); enemies_left = 0
-        boss.update(player, b_projs)
-        if boss.hp <= 0:
-            currency_points = shop_menu(player, currency_points)
-            boss = None; wave += 1; enemies_left = 5 + wave
-    else:
-        if enemies_left > 0:
-            if random.randint(1, 40) == 1:
-                enemies.append(Enemy(wave, random.random() < 0.15))
-                enemies_left -= 1
-        elif len(enemies) == 0: # Plus d'ennemis à l'écran, on passe à la suite
-            wave += 1
-            enemies_left = 5 + wave
+        # --- AMELIORATION : Tir Diagonal (Plus lent que le tir principal) ---
+        if is_shooting and player.diag_auto_level > 0:
+            if now - player.last_diag_shot > 550: # Cadence fixe plus lente
+                projectiles.append(Projectile(player.rect.left, player.rect.top, -3, -12, CYAN, piercing=player.piercing))
+                projectiles.append(Projectile(player.rect.right, player.rect.top, 3, -12, CYAN, piercing=player.piercing))
+                player.last_diag_shot = now
 
-    # Update Projectiles
-    for p in projectiles[:]:
-        p.move()
-        if p.rect.bottom < 0: projectiles.remove(p)
-        elif boss and p.rect.colliderect(boss.rect):
-            if p.is_canon: damage_texts.append({"text": "IMMUNE !", "pos": [boss.rect.centerx, boss.rect.top - 10], "life": 40})
-            else: currency_points += 10; boss.hp -= (5 if p.is_grenade else 1)
-            if not p.is_canon: projectiles.remove(p)
+        # AMELIORATION : Canon (Tir auto lent)
+        if player.has_canon and now - player.last_canon_shot > 2000:
+            projectiles.append(Projectile(player.rect.centerx, player.rect.top, 0, -5, RED, is_canon=True))
+            player.last_canon_shot = now
 
-    # Update Ennemis (Correction nettoyage automatique)
-    for e in enemies[:]:
-        e.move()
-        if e.rect.top > HEIGHT: # Sortie de l'écran
-            enemies.remove(e)
-        elif e.rect.colliderect(player.rect):
-            if not e.is_bonus: player_take_damage(player, 1)
-            enemies.remove(e)
+        # AMELIORATION : Tourelle (Tir auto rapide)
+        if player.turret_level > 0 and now - player.last_turret_shot > (1000 // player.turret_level):
+            projectiles.append(Projectile(player.rect.centerx, player.rect.top, 0, -15, BLUE))
+            player.last_turret_shot = now
+
+        player.update_position(pygame.mouse.get_pos()[0])
+
+        # Vagues et Boss
+        if wave % 10 == 0:
+            if not boss: boss = Boss(wave); enemies.clear(); enemies_left = 0
+            boss.update(player, b_projs)
+            if boss.hp <= 0:
+                currency_points = shop_menu(player, currency_points)
+                boss = None; wave += 1; enemies_left = 5 + wave
         else:
-            for p in projectiles[:]:
-                if p.rect.colliderect(e.rect):
-                    if e.is_bonus: enemies.remove(e); currency_points += 100; upgrade_menu(player)
-                    else:
-                        currency_points += 10; e.hp -= (5 if p.is_grenade else (100 if p.is_canon else 1))
-                        if e.hp <= 0:
-                            if e in enemies: enemies.remove(e); score += 10; currency_points += 100
-                    if p.piercing and not p.is_canon and not p.is_grenade:
-                        p.hits += 1
-                        if p.hits > 2: projectiles.remove(p)
-                    elif not p.is_canon:
-                        if p in projectiles: projectiles.remove(p)
-                    break
+            if enemies_left > 0:
+                if random.randint(1, 40) == 1:
+                    enemies.append(Enemy(wave, random.random() < 0.15))
+                    enemies_left -= 1
+            elif len(enemies) == 0: wave += 1; enemies_left = 5 + wave
 
-    for bp in b_projs[:]:
-        bp.move()
-        if bp.rect.colliderect(player.rect): player_take_damage(player, 1); b_projs.remove(bp)
-        elif bp.rect.top > HEIGHT: b_projs.remove(bp)
+        # Update Projectiles
+        for p in projectiles[:]:
+            p.move()
+            if p.rect.bottom < 0: projectiles.remove(p)
+            elif boss and p.rect.colliderect(boss.rect):
+                if p.is_canon: damage_texts.append({"text": "IMMUNE !", "pos": [boss.rect.centerx, boss.rect.top - 10], "life": 40})
+                else: currency_points += 10; boss.hp -= (5 if p.is_grenade else 1)
+                if not p.is_canon: projectiles.remove(p)
 
-    # Rendu
-    player.draw(window)
-    if boss: boss.draw(window)
-    for x in projectiles + enemies + b_projs: x.draw(window)
-    for dt in damage_texts[:]:
-        window.blit(font_small.render(dt["text"], True, RED), dt["pos"]); dt["pos"][1] -= 1; dt["life"] -= 1
-        if dt["life"] <= 0: damage_texts.remove(dt)
-    
-    window.blit(font_ui.render(f"SCORE: {score}  POINTS: {int(currency_points)}  MANCHE: {wave}", True, BLACK), (10, 10))
-    window.blit(font_ui.render(f"HP: {int(player.hp)}  SHIELD: {int(player.shield)}", True, RED if player.hp < 2 else BLACK), (10, 40))
-    
-    if player.hp <= 0: running = False
-    pygame.display.flip()
+        # Update Ennemis
+        for e in enemies[:]:
+            e.move()
+            if e.rect.top > HEIGHT: enemies.remove(e)
+            elif e.rect.colliderect(player.rect):
+                if not e.is_bonus: player_take_damage(player, 1)
+                enemies.remove(e)
+            else:
+                for p in projectiles[:]:
+                    if p.rect.colliderect(e.rect):
+                        if e.is_bonus: 
+                            enemies.remove(e); currency_points += 100
+                            upgrade_menu(player)
+                        else:
+                            currency_points += 10; e.hp -= (5 if p.is_grenade else (100 if p.is_canon else 1))
+                            if e.hp <= 0:
+                                if e in enemies: enemies.remove(e); score += 10; currency_points += 100
+                        if p.piercing and not p.is_canon and not p.is_grenade:
+                            p.hits += 1
+                            if p.hits > 2: projectiles.remove(p)
+                        elif not p.is_canon:
+                            if p in projectiles: projectiles.remove(p)
+                        break
 
-pygame.quit()
+        for bp in b_projs[:]:
+            bp.move()
+            if bp.rect.colliderect(player.rect): player_take_damage(player, 1); b_projs.remove(bp)
+            elif bp.rect.top > HEIGHT: b_projs.remove(bp)
+
+        # Rendu
+        player.draw(window)
+        if boss: boss.draw(window)
+        for x in projectiles + enemies + b_projs: x.draw(window)
+        for dt in damage_texts[:]:
+            window.blit(font_small.render(dt["text"], True, RED), dt["pos"]); dt["pos"][1] -= 1; dt["life"] -= 1
+            if dt["life"] <= 0: damage_texts.remove(dt)
+        window.blit(font_ui.render(f"SCORE: {score}  POINTS: {int(currency_points)}  MANCHE: {wave}", True, BLACK), (10, 10))
+        window.blit(font_ui.render(f"HP: {int(player.hp)}  SHIELD: {int(player.shield)}", True, RED if player.hp < 2 else BLACK), (10, 40))
+        if player.hp <= 0: game_running = False
+        pygame.display.flip()
+
+    show_leaderboard_screen(score)
